@@ -104,13 +104,46 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'page' not in st.session_state:
-    st.session_state.page = 'dashboard'
-if 'invoice_data' not in st.session_state:
-    st.session_state.invoice_data = {}
-if 'sessions' not in st.session_state:
-    st.session_state.sessions = [{'description': '60 Mins Physiotherapy Session', 'qty': 1, 'per_session_cost': 500}]
+# Clinic address configurations - UPDATED WITH CORRECT ADDRESSES
+CLINIC_ADDRESSES = {
+    "Vittal Rao Nagar, Madhapur": {
+        "display_name": "Vittal Rao Nagar, Madhapur",
+        "full_address": "Plot No. 1-89/A/3/15, beside Siddarth Fitness gym,\nnear Gowra Tulips, Vittal Rao Nagar, Madhapur,\nGafoornagar, Hyderabad, Telangana 500081",
+        "short_address": "Plot No. 1-89/A/3/15, beside Siddarth Fitness gym, near Gowra Tulips, Vittal Rao Nagar, Madhapur, Gafoornagar, Hyderabad 500081"
+    },
+    "Sri Ramnagar, Kondapur": {
+        "display_name": "Sri Ramnagar, Kondapur",
+        "full_address": "Street Number 5, beside Charminar Biriyani Shop,\nKondapur, Sri Ramnagar - Block C,\nHyderabad, Telangana 500084",
+        "short_address": "Street Number 5, beside Charminar Biriyani Shop, Kondapur, Sri Ramnagar - Block C, Hyderabad 500084"
+    }
+}
+
+# Initialize session state with proper form data preservation
+def initialize_session_state():
+    """Initialize all session state variables with proper defaults"""
+    if 'page' not in st.session_state:
+        st.session_state.page = 'dashboard'
+    if 'invoice_data' not in st.session_state:
+        st.session_state.invoice_data = {}
+    if 'sessions' not in st.session_state:
+        st.session_state.sessions = [{'description': '60 Mins Physiotherapy Session', 'qty': 1, 'per_session_cost': 500}]
+    
+    # Form data preservation - FIXED INVOICE YEAR TO 2026
+    if 'form_data' not in st.session_state:
+        st.session_state.form_data = {
+            'invoice_no': "PAL-PT-2026-001",  # Changed from 2025 to 2026
+            'invoice_date': datetime.now().date(),
+            'clinic_location': "Vittal Rao Nagar, Madhapur",
+            'patient_name': "",
+            'patient_sex': "Male",
+            'patient_age': "",
+            'patient_phone': "+91 ",
+            'problem_desc': "",
+            'mode_of_treatment': "Clinic visit",
+            'treatment_notes': "",
+            'session_start_date': datetime.now().date(),
+            'session_end_date': datetime.now().date()
+        }
 
 def load_logo_as_base64():
     """Load logo and convert to base64"""
@@ -253,10 +286,12 @@ def show_dashboard():
         """, unsafe_allow_html=True)
 
 def show_form():
-    """Invoice form page"""
+    """Invoice form page with session state preservation"""
     col1, col2, col3 = st.columns([1, 6, 1])
     with col1:
         if st.button("← Back"):
+            # Save current form data before going back
+            save_form_data()
             st.session_state.page = 'dashboard'
             st.rerun()
     
@@ -276,9 +311,29 @@ def show_form():
     
     col1, col2 = st.columns(2)
     with col1:
-        invoice_no = st.text_input("Invoice No", value="PAL-PT-2025-001")
+        invoice_no = st.text_input("Invoice No", value=st.session_state.form_data['invoice_no'])
     with col2:
-        invoice_date = st.date_input("Date", value=datetime.now().date())
+        invoice_date = st.date_input("Date", value=st.session_state.form_data['invoice_date'])
+    
+    st.markdown("""
+    <div class="form-section">
+        <div class="section-title">Clinic Location</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Clinic address selection with preserved state
+    clinic_location_index = list(CLINIC_ADDRESSES.keys()).index(st.session_state.form_data['clinic_location'])
+    clinic_location = st.selectbox(
+        "Select Clinic Location",
+        options=list(CLINIC_ADDRESSES.keys()),
+        index=clinic_location_index,
+        format_func=lambda x: CLINIC_ADDRESSES[x]['display_name'],
+        help="Choose the clinic location for this invoice"
+    )
+    
+    # Display selected address details
+    selected_address = CLINIC_ADDRESSES[clinic_location]
+    st.info(f"📍 **Selected Address:** {selected_address['short_address']}")
     
     st.markdown("""
     <div class="form-section">
@@ -288,18 +343,20 @@ def show_form():
     
     col1, col2 = st.columns(2)
     with col1:
-        patient_name = st.text_input("Patient Name", placeholder="Enter patient's full name")
-        patient_sex = st.selectbox("Patient Sex", options=["Male", "Female", "Others"])
+        patient_name = st.text_input("Patient Name", value=st.session_state.form_data['patient_name'], placeholder="Enter patient's full name")
+        patient_sex_index = ["Male", "Female", "Others"].index(st.session_state.form_data['patient_sex'])
+        patient_sex = st.selectbox("Patient Sex", options=["Male", "Female", "Others"], index=patient_sex_index)
     with col2:
-        patient_age = st.text_input("Patient Age", placeholder="Enter patient's age")
-        patient_phone = st.text_input("Patient Phone No", value="+91 ")
+        patient_age = st.text_input("Patient Age", value=st.session_state.form_data['patient_age'], placeholder="Enter patient's age")
+        patient_phone = st.text_input("Patient Phone No", value=st.session_state.form_data['patient_phone'])
     
     col1, col2 = st.columns(2)
     with col1:
-        problem_desc = st.text_area("Problem Description", placeholder="Problem Description...", height=100)
-        mode_of_treatment = st.selectbox("Mode of Treatment", options=["Clinic visit", "Home Visit", "Online Treatment"])
+        problem_desc = st.text_area("Problem Description", value=st.session_state.form_data['problem_desc'], placeholder="Problem Description...", height=100)
+        mode_of_treatment_index = ["Clinic visit", "Home Visit", "Online Treatment"].index(st.session_state.form_data['mode_of_treatment'])
+        mode_of_treatment = st.selectbox("Mode of Treatment", options=["Clinic visit", "Home Visit", "Online Treatment"], index=mode_of_treatment_index)
     with col2:
-        treatment_notes = st.text_area("Treatment Notes", placeholder="Treatment provided...", height=100)
+        treatment_notes = st.text_area("Treatment Notes", value=st.session_state.form_data['treatment_notes'], placeholder="Treatment provided...", height=100)
     
     st.markdown("""
     <div class="form-section">
@@ -307,12 +364,12 @@ def show_form():
     </div>
     """, unsafe_allow_html=True)
     
-    # Session start and end dates
+    # Session start and end dates with preserved state
     col1, col2 = st.columns(2)
     with col1:
-        session_start_date = st.date_input("Session Start Date", value=datetime.now().date())
+        session_start_date = st.date_input("Session Start Date", value=st.session_state.form_data['session_start_date'])
     with col2:
-        session_end_date = st.date_input("Session End Date", value=datetime.now().date())
+        session_end_date = st.date_input("Session End Date", value=st.session_state.form_data['session_end_date'])
     
     if st.button("+ Add Session"):
         st.session_state.sessions.append({
@@ -381,6 +438,22 @@ def show_form():
                 st.error("Please enter patient age")
                 return
             
+            # Save form data to session state
+            st.session_state.form_data.update({
+                'invoice_no': invoice_no,
+                'invoice_date': invoice_date,
+                'clinic_location': clinic_location,
+                'patient_name': patient_name,
+                'patient_sex': patient_sex,
+                'patient_age': patient_age,
+                'patient_phone': patient_phone,
+                'problem_desc': problem_desc,
+                'treatment_notes': treatment_notes,
+                'mode_of_treatment': mode_of_treatment,
+                'session_start_date': session_start_date,
+                'session_end_date': session_end_date
+            })
+            
             st.session_state.invoice_data = {
                 'invoice_no': invoice_no,
                 'invoice_date': invoice_date,
@@ -392,10 +465,18 @@ def show_form():
                 'treatment_notes': treatment_notes if treatment_notes else "As per treatment plan",
                 'mode_of_treatment': mode_of_treatment,
                 'session_start_date': session_start_date,
-                'session_end_date': session_end_date
+                'session_end_date': session_end_date,
+                'clinic_location': clinic_location,
+                'clinic_address': selected_address
             }
             st.session_state.page = 'preview'
             st.rerun()
+
+def save_form_data():
+    """Save current form data to session state for preservation"""
+    # This function can be expanded to save additional form data if needed
+    # Currently, the form data is already being saved in the form itself
+    pass
 
 def generate_invoice_html(data, sessions, total_amount):
     """Generate complete HTML for the professional invoice"""
@@ -419,6 +500,9 @@ def generate_invoice_html(data, sessions, total_amount):
         signature_html = f'<img src="data:image/png;base64,{signature_b64}" style="max-width: 150px; max-height: 60px; object-fit: contain;">'
     else:
         signature_html = '<div style="font-family: cursive; font-size: 24px; color: #333; margin-bottom: 5px;">Dr. Bhuvana</div>'
+    
+    # Get clinic address information
+    clinic_info = data['clinic_address']
     
     sessions_rows = ""
     for i, session in enumerate(sessions):
@@ -757,10 +841,10 @@ def generate_invoice_html(data, sessions, total_amount):
                         <div class="section-title">Clinic Details:</div>
                         <div class="section-content">
                             <p><strong>PAL Physiotherapy & Sports Rehab</strong></p>
+                            <p><strong>Location:</strong> {clinic_info['display_name']}</p>
+                            <p><strong>Address:</strong> {clinic_info['full_address']}</p>
                             <p><strong>Phone:</strong> +91 8639398229</p>
                             <p><strong>Doctor:</strong> Dr. Bhuvana</p>
-                            <p><strong>Address:</strong> Plot No. 1-89/A/3/15, Vittal Rao Nagar,<br>
-                            Madhapur, Hyderabad, Telangana 500081</p>
                             <p><strong>Registration:</strong> UDYAM-TS-09-0137821</p>
                         </div>
                     </div>
@@ -861,8 +945,9 @@ def show_preview():
     total_amount = sum(session['qty'] * session['per_session_cost'] for session in st.session_state.sessions)
     
     patient_name = data['patient_name'].strip().replace(' ', '_')
+    clinic_name = data['clinic_location'].replace(' ', '_').replace(',', '')
     clean_filename = ''.join(c for c in patient_name if c.isalnum() or c == '_').lower()
-    html_filename = f"PAL_Invoice_{clean_filename}_{data['invoice_date'].strftime('%Y%m%d')}.html"
+    html_filename = f"PAL_Invoice_{clean_filename}_{clinic_name}_{data['invoice_date'].strftime('%Y%m%d')}.html"
     
     html_content = generate_invoice_html(data, st.session_state.sessions, total_amount)
     
@@ -952,6 +1037,7 @@ def show_preview():
             <h4 style="color: #0a2a43; margin: 0 0 10px 0;">📅 Invoice Details</h4>
             <p style="margin: 5px 0; color: #666;"><strong>Invoice No:</strong> {data['invoice_no']}</p>
             <p style="margin: 5px 0; color: #666;"><strong>Date:</strong> {data['invoice_date'].strftime('%d/%m/%Y')}</p>
+            <p style="margin: 5px 0; color: #666;"><strong>Location:</strong> {data['clinic_address']['display_name']}</p>
             <p style="margin: 5px 0; color: #666;"><strong>Sessions:</strong> {len(st.session_state.sessions)}</p>
         </div>
         """, unsafe_allow_html=True)
@@ -967,24 +1053,36 @@ def show_preview():
 
 def main():
     """Main application function"""
+    # Initialize session state at the start
+    initialize_session_state()
+    
     with st.sidebar:
         st.markdown("""
         <div style="padding: 20px; background: linear-gradient(135deg, #30b392 0%, #27ae60 100%); border-radius: 10px; color: white; text-align: center;">
             <h3 style="margin: 0 0 10px 0;">🏥 PAL Physiotherapy</h3>
-            <p style="margin: 0; font-size: 14px;">Invoice Generator v2.0</p>
+            <p style="margin: 0; font-size: 14px;">Invoice Generator v2.2</p>
         </div>
         """, unsafe_allow_html=True)
         
         st.markdown("---")
         
+        # Show available clinic locations
+        st.markdown("### 🏢 Clinic Locations:")
+        for location_key, location_data in CLINIC_ADDRESSES.items():
+            st.markdown(f"📍 **{location_data['display_name']}**")
+            st.markdown(f"<small>{location_data['short_address']}</small>", unsafe_allow_html=True)
+            st.markdown("---")
+        
         st.markdown("""
         **Quick Guide:**
-        1. Fill patient details
-        2. Add treatment sessions
-        3. Generate preview
-        4. Download HTML file
-        
+        1. Select clinic location
+        2. Fill patient details
+        3. Add treatment sessions
+        4. Generate preview
+        5. Download HTML file
+                
         **Features:**
+        - Multiple clinic locations
         - Print-ready HTML invoices
         - Professional medical template
         - Embedded images (no dependencies)
@@ -992,10 +1090,10 @@ def main():
         
         **Contact:**
         📞 +91 8639398229
-        📍 Madhapur, Hyderabad
+        📍 Multiple Locations in Hyderabad
         
         ---
-        © 2025 PAL Physiotherapy
+        © 2026 PAL Physiotherapy
         """)
     
     if st.session_state.page == 'dashboard':
