@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime
 import base64
 import os
+import re
+import json
 
 # Page configuration
 st.set_page_config(
@@ -80,6 +82,15 @@ st.markdown("""
         padding-bottom: 0.5rem;
     }
     
+    .upload-section {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #f39c12;
+    }
+    
     .stButton > button {
         background: linear-gradient(135deg, #27ae60 0%, #30b392 100%);
         color: white;
@@ -96,6 +107,14 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
         background: linear-gradient(135deg, #219a52 0%, #2ba085 100%);
+    }
+    
+    .upload-info {
+        background: #e8f5e8;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        border: 1px solid #c3e6c3;
     }
     
     .stDeployButton {display:none;}
@@ -127,6 +146,10 @@ def initialize_session_state():
         st.session_state.invoice_data = {}
     if 'sessions' not in st.session_state:
         st.session_state.sessions = [{'description': '60 Mins Physiotherapy Session', 'qty': 1, 'per_session_cost': 500}]
+    if 'uploaded_invoice_data' not in st.session_state:
+        st.session_state.uploaded_invoice_data = None
+    if 'edit_mode' not in st.session_state:
+        st.session_state.edit_mode = False
     
     # Form data preservation - FIXED INVOICE YEAR TO 2026
     if 'form_data' not in st.session_state:
@@ -144,6 +167,145 @@ def initialize_session_state():
             'session_start_date': datetime.now().date(),
             'session_end_date': datetime.now().date()
         }
+
+def extract_text_from_uploaded_pdf(uploaded_file):
+    """Extract text content from uploaded PDF file"""
+    try:
+        import PyPDF2
+        from io import BytesIO
+        
+        pdf_reader = PyPDF2.PdfReader(BytesIO(uploaded_file.read()))
+        text_content = ""
+        
+        for page in pdf_reader.pages:
+            text_content += page.extract_text() + "\n"
+        
+        return text_content
+    except ImportError:
+        st.error("PyPDF2 library not available. PDF text extraction disabled.")
+        return None
+    except Exception as e:
+        st.error(f"Error reading PDF: {str(e)}")
+        return None
+
+def parse_invoice_data_from_text(text_content):
+    """Parse invoice data from extracted PDF text"""
+    if not text_content:
+        return None
+    
+    try:
+        # Initialize parsed data dictionary
+        parsed_data = {
+            'invoice_no': "",
+            'invoice_date': datetime.now().date(),
+            'clinic_location': "Vittal Rao Nagar, Madhapur",
+            'patient_name': "",
+            'patient_sex': "Male",
+            'patient_age': "",
+            'patient_phone': "+91 ",
+            'problem_desc': "",
+            'mode_of_treatment': "Clinic visit",
+            'treatment_notes': "",
+            'session_start_date': datetime.now().date(),
+            'session_end_date': datetime.now().date()
+        }
+        
+        parsed_sessions = []
+        
+        # Extract invoice number
+        invoice_match = re.search(r'Invoice number:\s*(PAL-PT-\d{4}-\d{3})', text_content)
+        if invoice_match:
+            parsed_data['invoice_no'] = invoice_match.group(1)
+        
+        # Extract patient name
+        name_match = re.search(r'Name:\s*([^\n]+)', text_content)
+        if name_match:
+            parsed_data['patient_name'] = name_match.group(1).strip()
+        
+        # Extract patient age
+        age_match = re.search(r'Age:\s*([^\n]+)', text_content)
+        if age_match:
+            parsed_data['patient_age'] = age_match.group(1).strip()
+        
+        # Extract patient sex
+        sex_match = re.search(r'Sex:\s*(Male|Female|Others)', text_content)
+        if sex_match:
+            parsed_data['patient_sex'] = sex_match.group(1)
+        
+        # Extract phone number
+        phone_match = re.search(r'Phone:\s*([^\n]+)', text_content)
+        if phone_match:
+            parsed_data['patient_phone'] = phone_match.group(1).strip()
+        
+        # Extract problem description
+        problem_match = re.search(r'Problem Description:\s*([^\n]+)', text_content)
+        if problem_match:
+            parsed_data['problem_desc'] = problem_match.group(1).strip()
+        
+        # Extract treatment notes
+        treatment_match = re.search(r'Treatment Notes:\s*([^\n]+)', text_content)
+        if treatment_match:
+            parsed_data['treatment_notes'] = treatment_match.group(1).strip()
+        
+        # Extract mode of treatment
+        mode_match = re.search(r'Mode of Treatment:\s*(Clinic visit|Home Visit|Online Treatment)', text_content)
+        if mode_match:
+            parsed_data['mode_of_treatment'] = mode_match.group(1)
+        
+        # Extract clinic location
+        if "Sri Ramnagar" in text_content:
+            parsed_data['clinic_location'] = "Sri Ramnagar, Kondapur"
+        elif "Vittal Rao Nagar" in text_content:
+            parsed_data['clinic_location'] = "Vittal Rao Nagar, Madhapur"
+        
+        # Extract dates
+        date_match = re.search(r'Date:\s*(\d{2}/\d{2}/\d{4})', text_content)
+        if date_match:
+            try:
+                parsed_data['invoice_date'] = datetime.strptime(date_match.group(1), '%d/%m/%Y').date()
+            except:
+                pass
+        
+        # Extract session dates
+        session_start_match = re.search(r'Session Start Date:\s*(\d{2}/\d{2}/\d{4})', text_content)
+        if session_start_match:
+            try:
+                parsed_data['session_start_date'] = datetime.strptime(session_start_match.group(1), '%d/%m/%Y').date()
+            except:
+                pass
+        
+        session_end_match = re.search(r'Session End Date:\s*(\d{2}/\d{2}/\d{4})', text_content)
+        if session_end_match:
+            try:
+                parsed_data['session_end_date'] = datetime.strptime(session_end_match.group(1), '%d/%m/%Y').date()
+            except:
+                pass
+        
+        # Extract session details from table
+        # This is a simplified approach - might need refinement based on actual PDF structure
+        session_pattern = r'(\d+)\s+([^\d]+?)\s+(\d+)\s+₹([\d,]+\.\d{2})\s+₹([\d,]+\.\d{2})'
+        session_matches = re.findall(session_pattern, text_content)
+        
+        for match in session_matches:
+            try:
+                session = {
+                    'description': match[1].strip(),
+                    'qty': int(match[2]),
+                    'per_session_cost': float(match[3].replace(',', ''))
+                }
+                parsed_sessions.append(session)
+            except:
+                continue
+        
+        # If no sessions found, add default
+        if not parsed_sessions:
+            parsed_sessions = [{'description': '60 Mins Physiotherapy Session', 'qty': 1, 'per_session_cost': 500}]
+        
+        return {'form_data': parsed_data, 'sessions': parsed_sessions}
+        
+    except Exception as e:
+        st.error(f"Error parsing invoice data: {str(e)}")
+        return None
 
 def load_logo_as_base64():
     """Load logo and convert to base64"""
@@ -238,24 +400,45 @@ def show_dashboard():
     </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 3, 1])
+    # Main action cards
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div style="margin-bottom: 1rem;">
+                <div style="font-size: 4rem; color: #27ae60; margin-bottom: 1rem;">📄</div>
+            </div>
+            <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Create New Invoice</div>
+            <div style="color: #666; font-size: 1rem; margin-bottom: 1.5rem;">Start fresh with a new patient invoice</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("+ Create New Invoice", use_container_width=True):
+            st.session_state.edit_mode = False
+            st.session_state.uploaded_invoice_data = None
+            st.session_state.page = 'form'
+            st.rerun()
     
     with col2:
         st.markdown(f"""
         <div class="dashboard-card">
             <div style="margin-bottom: 1rem;">
-                <img src="{logo_src}" width="100" height="100" style="object-fit: contain;">
+                <div style="font-size: 4rem; color: #f39c12; margin-bottom: 1rem;">📤</div>
             </div>
-            <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Invoice Generator</div>
-            <div style="color: #666; font-size: 1rem; margin-bottom: 1.5rem;">Create professional invoices for your physiotherapy sessions quickly and easily</div>
+            <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Edit Existing Invoice</div>
+            <div style="color: #666; font-size: 1rem; margin-bottom: 1.5rem;">Upload a previous invoice PDF to edit</div>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("+ Create New Invoice", use_container_width=True):
-            st.session_state.page = 'form'
+        if st.button("📤 Upload & Edit Invoice", use_container_width=True):
+            st.session_state.edit_mode = True
+            st.session_state.page = 'upload'
             st.rerun()
     
     st.markdown("---")
+    
+    # Feature highlights
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -263,7 +446,7 @@ def show_dashboard():
         <div class="dashboard-card">
             <div style="font-size: 3rem; color: #27ae60; margin-bottom: 1rem;">⭐</div>
             <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Professional</div>
-            <div style="color: #666;">Medical-grade invoice templates</div>
+            <div style="color: #666;">Medical-grade invoice templates with refund policy</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -271,8 +454,8 @@ def show_dashboard():
         st.markdown("""
         <div class="dashboard-card">
             <div style="font-size: 3rem; color: #f39c12; margin-bottom: 1rem;">⚡</div>
-            <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Fast</div>
-            <div style="color: #666;">Generate invoices in seconds</div>
+            <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Fast & Editable</div>
+            <div style="color: #666;">Generate new or edit existing invoices in seconds</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -281,12 +464,140 @@ def show_dashboard():
         <div class="dashboard-card">
             <div style="font-size: 3rem; color: #0a2a43; margin-bottom: 1rem;">🔒</div>
             <div style="font-size: 1.8rem; font-weight: bold; color: #0a2a43; margin-bottom: 0.5rem;">Secure</div>
-            <div style="color: #666;">Patient data protection</div>
+            <div style="color: #666;">Patient data protection & privacy</div>
         </div>
         """, unsafe_allow_html=True)
 
+def show_upload_page():
+    """PDF upload page for editing existing invoices"""
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        if st.button("← Back"):
+            st.session_state.page = 'dashboard'
+            st.rerun()
+    
+    with col2:
+        st.markdown("""
+        <div style="text-align: center;">
+            <h1 style="color: #0a2a43;">Upload Previous Invoice</h1>
+            <p style="color: #666;">Upload a PDF of your previous PAL Physiotherapy invoice to edit it</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="upload-section">
+        <div class="section-title">📤 Upload Invoice PDF</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Choose a PAL Physiotherapy invoice PDF file",
+        type=['pdf'],
+        help="Upload a previously generated PAL Physiotherapy invoice to edit its content"
+    )
+    
+    if uploaded_file is not None:
+        st.success(f"✅ File uploaded: {uploaded_file.name}")
+        
+        # Show file details
+        file_details = {
+            "File Name": uploaded_file.name,
+            "File Size": f"{uploaded_file.size / 1024:.2f} KB",
+            "File Type": uploaded_file.type
+        }
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            for key, value in file_details.items():
+                st.info(f"**{key}:** {value}")
+        
+        st.markdown("---")
+        
+        # Process the uploaded PDF
+        with st.spinner("🔄 Extracting invoice data from PDF..."):
+            try:
+                # Reset file pointer
+                uploaded_file.seek(0)
+                
+                # Extract text from PDF
+                text_content = extract_text_from_uploaded_pdf(uploaded_file)
+                
+                if text_content:
+                    # Parse the invoice data
+                    parsed_data = parse_invoice_data_from_text(text_content)
+                    
+                    if parsed_data:
+                        st.success("✅ Invoice data extracted successfully!")
+                        
+                        # Store the parsed data in session state
+                        st.session_state.uploaded_invoice_data = parsed_data
+                        
+                        # Show preview of extracted data
+                        with st.expander("👁️ Preview of Extracted Data", expanded=True):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown("### Patient Information:")
+                                st.write(f"**Name:** {parsed_data['form_data']['patient_name']}")
+                                st.write(f"**Age:** {parsed_data['form_data']['patient_age']}")
+                                st.write(f"**Sex:** {parsed_data['form_data']['patient_sex']}")
+                                st.write(f"**Phone:** {parsed_data['form_data']['patient_phone']}")
+                            
+                            with col2:
+                                st.markdown("### Invoice Details:")
+                                st.write(f"**Invoice No:** {parsed_data['form_data']['invoice_no']}")
+                                st.write(f"**Clinic:** {parsed_data['form_data']['clinic_location']}")
+                                st.write(f"**Sessions:** {len(parsed_data['sessions'])}")
+                                
+                                total = sum(s['qty'] * s['per_session_cost'] for s in parsed_data['sessions'])
+                                st.write(f"**Total Amount:** ₹{total:,.2f}")
+                        
+                        # Action buttons
+                        col1, col2, col3 = st.columns([2, 2, 2])
+                        
+                        with col1:
+                            if st.button("✏️ Edit This Invoice", use_container_width=True):
+                                # Load the parsed data into form_data and sessions
+                                st.session_state.form_data.update(parsed_data['form_data'])
+                                st.session_state.sessions = parsed_data['sessions']
+                                st.session_state.edit_mode = True
+                                st.session_state.page = 'form'
+                                st.rerun()
+                        
+                        with col2:
+                            if st.button("🔄 Try Different PDF", use_container_width=True):
+                                st.session_state.uploaded_invoice_data = None
+                                st.rerun()
+                    else:
+                        st.error("❌ Could not parse invoice data from the PDF. Please ensure it's a PAL Physiotherapy invoice.")
+                        st.info("💡 **Tip:** Make sure you're uploading a PDF generated by this PAL Invoice Generator.")
+                else:
+                    st.error("❌ Could not extract text from the PDF. Please try a different file.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error processing PDF: {str(e)}")
+                st.info("💡 **Note:** PDF processing requires the PyPDF2 library. Some PDF formats may not be supported.")
+    
+    else:
+        # Show upload instructions
+        st.markdown("""
+        <div class="upload-info">
+            <h4 style="color: #0a2a43; margin-bottom: 1rem;">📋 Upload Instructions:</h4>
+            <ol style="color: #666; line-height: 1.6;">
+                <li><strong>Select a PDF file</strong> - Only PDF files are supported</li>
+                <li><strong>PAL Invoice PDFs work best</strong> - Upload invoices generated by this system</li>
+                <li><strong>File size limit</strong> - Keep files under 200MB for best performance</li>
+                <li><strong>Data extraction</strong> - The system will automatically extract patient and invoice details</li>
+                <li><strong>Edit and regenerate</strong> - Modify any details and create an updated invoice</li>
+            </ol>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.info("🔍 **Supported Data:** Patient details, invoice numbers, clinic information, session details, pricing, and dates will be automatically extracted from PAL Physiotherapy invoice PDFs.")
+
 def show_form():
-    """Invoice form page with session state preservation"""
+    """Invoice form page with session state preservation and edit mode"""
     col1, col2, col3 = st.columns([1, 6, 1])
     with col1:
         if st.button("← Back"):
@@ -296,12 +607,24 @@ def show_form():
             st.rerun()
     
     with col2:
-        st.markdown("""
-        <div style="text-align: center;">
-            <h1 style="color: #0a2a43;">Create New Invoice</h1>
-            <p style="color: #666;">Fill in the patient and session details below</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if st.session_state.edit_mode:
+            st.markdown("""
+            <div style="text-align: center;">
+                <h1 style="color: #0a2a43;">✏️ Edit Invoice</h1>
+                <p style="color: #666;">Modify the invoice details below and regenerate</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="text-align: center;">
+                <h1 style="color: #0a2a43;">Create New Invoice</h1>
+                <p style="color: #666;">Fill in the patient and session details below</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Show edit mode indicator
+    if st.session_state.edit_mode:
+        st.success("📝 **Edit Mode**: You're editing a previously uploaded invoice. All fields have been pre-filled with the extracted data.")
     
     st.markdown("""
     <div class="form-section">
@@ -430,7 +753,8 @@ def show_form():
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([2, 2, 2])
     with col2:
-        if st.button("Generate Invoice Preview", use_container_width=True):
+        button_text = "Update Invoice Preview" if st.session_state.edit_mode else "Generate Invoice Preview"
+        if st.button(button_text, use_container_width=True):
             if not patient_name.strip():
                 st.error("Please enter patient name")
                 return
@@ -479,7 +803,7 @@ def save_form_data():
     pass
 
 def generate_invoice_html(data, sessions, total_amount):
-    """Generate complete HTML for the professional invoice"""
+    """Generate complete HTML for the professional invoice with refund policy"""
     logo_b64 = load_logo_as_base64()
     watermark_b64 = load_watermark_as_base64()
     signature_b64 = load_signature_as_base64()
@@ -791,6 +1115,21 @@ def generate_invoice_html(data, sessions, total_amount):
                 list-style-position: inside;
             }}
             
+            .refund-policy {{
+                background: #fff3cd;
+                border: 1px solid #ffeaa7;
+                border-radius: 4px;
+                padding: 8px;
+                margin-top: 8px;
+                text-align: center;
+            }}
+            
+            .refund-policy strong {{
+                color: #856404;
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            
             @media print {{
                 body {{ 
                     margin: 0; 
@@ -917,6 +1256,10 @@ def generate_invoice_html(data, sessions, total_amount):
                             <li>In case of disputes, efforts will be made to resolve them amicably. Jurisdiction for any legal matters will be Hyderabad, Telangana.</li>
                         </ol>
                     </div>
+                    
+                    <div class="refund-policy">
+                        <strong>Kindly note - The amount which you pay in package is not refundable.</strong>
+                    </div>
                 </div>
             </div>
         </div>
@@ -934,12 +1277,20 @@ def show_preview():
             st.rerun()
     
     with col2:
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h1 style="color: #0a2a43;">Invoice Preview</h1>
-            <p style="color: #666;">Review your invoice before downloading</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if st.session_state.edit_mode:
+            st.markdown("""
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h1 style="color: #0a2a43;">Updated Invoice Preview</h1>
+                <p style="color: #666;">Review your edited invoice before downloading</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h1 style="color: #0a2a43;">Invoice Preview</h1>
+                <p style="color: #666;">Review your invoice before downloading</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     data = st.session_state.invoice_data
     total_amount = sum(session['qty'] * session['per_session_cost'] for session in st.session_state.sessions)
@@ -947,7 +1298,10 @@ def show_preview():
     patient_name = data['patient_name'].strip().replace(' ', '_')
     clinic_name = data['clinic_location'].replace(' ', '_').replace(',', '')
     clean_filename = ''.join(c for c in patient_name if c.isalnum() or c == '_').lower()
-    html_filename = f"PAL_Invoice_{clean_filename}_{clinic_name}_{data['invoice_date'].strftime('%Y%m%d')}.html"
+    
+    # Add edit indicator to filename
+    edit_suffix = "_EDITED" if st.session_state.edit_mode else ""
+    html_filename = f"PAL_Invoice_{clean_filename}_{clinic_name}_{data['invoice_date'].strftime('%Y%m%d')}{edit_suffix}.html"
     
     html_content = generate_invoice_html(data, st.session_state.sessions, total_amount)
     
@@ -960,15 +1314,18 @@ def show_preview():
     col1, col2, col3 = st.columns([2, 2, 2])
     
     with col2:
+        download_label = "📥 Download Updated Invoice" if st.session_state.edit_mode else "📥 Download HTML Invoice"
         st.download_button(
-            label="📥 Download HTML Invoice",
+            label=download_label,
             data=html_content,
             file_name=html_filename,
             mime="text/html",
             use_container_width=True,
             type="primary"
         )
-        st.success("✅ Ready to download! Click the button above to save the HTML file.")
+        
+        success_message = "✅ Updated invoice ready to download!" if st.session_state.edit_mode else "✅ Ready to download! Click the button above to save the HTML file."
+        st.success(success_message)
         
     with st.expander("💡 How to Use the HTML Invoice"):
         st.markdown("""
@@ -1020,6 +1377,10 @@ def show_preview():
     st.markdown("---")
     st.markdown("<h3 style='text-align: center; color: #0a2a43; margin: 20px 0;'>Invoice Summary</h3>", unsafe_allow_html=True)
     
+    # Show edit mode indicator in summary
+    if st.session_state.edit_mode:
+        st.info("📝 **This is an edited invoice** - Updated from previously uploaded PDF")
+    
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f"""
@@ -1047,7 +1408,7 @@ def show_preview():
         <div style="background: #0a2a43; padding: 20px; border-radius: 8px; color: white;">
             <h4 style="color: white; margin: 0 0 10px 0;">💰 Total Amount</h4>
             <p style="font-size: 24px; font-weight: bold; margin: 5px 0;">₹{total_amount:,.2f}</p>
-            <p style="margin: 5px 0; font-size: 12px; opacity: 0.9;">Tax: Nil</p>
+            <p style="margin: 5px 0; font-size: 12px; opacity: 0.9;">Tax: Nil | Refund: Not Available</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1060,7 +1421,7 @@ def main():
         st.markdown("""
         <div style="padding: 20px; background: linear-gradient(135deg, #30b392 0%, #27ae60 100%); border-radius: 10px; color: white; text-align: center;">
             <h3 style="margin: 0 0 10px 0;">🏥 PAL Physiotherapy</h3>
-            <p style="margin: 0; font-size: 14px;">Invoice Generator v2.2</p>
+            <p style="margin: 0; font-size: 14px;">Invoice Generator v2.3</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1075,11 +1436,18 @@ def main():
         
         st.markdown("""
         **Quick Guide:**
-        1. Select clinic location
-        2. Fill patient details
-        3. Add treatment sessions
+        1. Create new invoice OR upload existing PDF
+        2. Fill/edit patient details
+        3. Add/modify treatment sessions
         4. Generate preview
         5. Download HTML file
+        
+        **New Features v2.3:**
+        - ✅ Upload & edit existing invoices
+        - ✅ Refund policy in terms
+        - ✅ PDF data extraction
+        - ✅ Form data preservation
+        - ✅ Edit mode indicators
                 
         **Features:**
         - Multiple clinic locations
@@ -1098,6 +1466,8 @@ def main():
     
     if st.session_state.page == 'dashboard':
         show_dashboard()
+    elif st.session_state.page == 'upload':
+        show_upload_page()
     elif st.session_state.page == 'form':
         show_form()
     elif st.session_state.page == 'preview':
